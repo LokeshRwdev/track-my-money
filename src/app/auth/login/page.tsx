@@ -1,68 +1,47 @@
-import { login, signup } from './actions'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { WalletCards } from 'lucide-react'
+import Link from 'next/link'
+import { WalletCards, ArrowLeft } from 'lucide-react'
+import { AuthCard } from './auth-card'
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const resolvedSearchParams = await searchParams;
-  const error = resolvedSearchParams?.error as string | undefined;
+  const resolvedSearchParams = await searchParams
+  const error = resolvedSearchParams?.error as string | undefined
+  const message = resolvedSearchParams?.message as string | undefined
+  const tab = resolvedSearchParams?.tab as string | undefined
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background via-muted/30 to-background p-4 sm:p-6">
       <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center space-y-2 text-center">
-          <div className="rounded-full bg-primary/10 p-3">
-            <WalletCards className="h-6 w-6 text-primary" />
+        {/* Top Brand Header */}
+        <div className="flex flex-col items-center space-y-2.5 text-center">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Home
+          </Link>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-foreground text-background font-bold text-lg shadow-md">
+            ₹
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Welcome to Track My Money</h1>
-          <p className="text-sm text-muted-foreground">
-            Enter your email to sign in to your account
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+            Track My Money
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground max-w-xs">
+            Simple, calm personal cash flow tracking.
           </p>
         </div>
-        
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>
-              Use your email and password to log in or create an account.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {error && (
-              <div className="mb-4 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
-            <form>
-              <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" type="email" placeholder="m@example.com" required />
-                </div>
-                <div className="grid gap-2">
-                  <div className="flex items-center">
-                    <Label htmlFor="password">Password</Label>
-                  </div>
-                  <Input id="password" name="password" type="password" required />
-                </div>
-                <div className="flex flex-col gap-2 pt-2">
-                  <Button formAction={login} type="submit" className="w-full">
-                    Log in
-                  </Button>
-                  <Button formAction={signup} type="submit" variant="outline" className="w-full">
-                    Sign up
-                  </Button>
-                </div>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+
+        {/* Dynamic Auth Card (Sign In & Sign Up) */}
+        <AuthCard initialTab={tab} error={error} message={message} />
+
+        {/* Footer info */}
+        <p className="text-center text-[11px] text-muted-foreground">
+          By continuing, you agree to keep your financial records accurate and private.
+        </p>
       </div>
     </div>
   )
