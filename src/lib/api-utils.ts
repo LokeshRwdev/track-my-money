@@ -72,18 +72,46 @@ export async function getMonthlyFinancialData(userId: string, month: string, sup
     .filter((r: any) => r.status === 'RECEIVED')
     .reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
 
-  // Calculate Expected Cash In
-  // If records exist for the month, use EXPECTED + RECEIVED;
-  // If no records exist, fallback to sum of active recurring income_sources expected_amount
-  const recordExpectedCashIn = (incomeRecords || [])
-    .filter((r: any) => r.status === 'EXPECTED' || r.status === 'RECEIVED')
+  // Map records by recurring source id
+  const sourceRecordMap = new Map<string, any[]>()
+  ;(incomeRecords || []).forEach((r: any) => {
+    if (r.income_source_id) {
+      const list = sourceRecordMap.get(r.income_source_id) || []
+      list.push(r)
+      sourceRecordMap.set(r.income_source_id, list)
+    }
+  })
+
+  // Calculate Expected Cash In:
+  // For each active recurring stream:
+  // - If record(s) exist for this month: sum of RECEIVED and EXPECTED records
+  // - If no record exists yet: include the stream's expected_amount (still pending for this month)
+  let expectedCashIn = 0
+  const activeRecurringSources = (incomeSources || []).filter((s: any) => s.is_active && s.is_recurring)
+
+  activeRecurringSources.forEach((s: any) => {
+    const recs = sourceRecordMap.get(s.id)
+    if (recs && recs.length > 0) {
+      const sourceTotal = recs
+        .filter((r: any) => r.status === 'RECEIVED' || r.status === 'EXPECTED')
+        .reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
+      expectedCashIn += sourceTotal
+    } else {
+      expectedCashIn += Number(s.expected_amount || 0)
+    }
+  })
+
+  // Non-recurring records (one-time or variable) for this month
+  const nonRecurringRecords = (incomeRecords || []).filter((r: any) => {
+    if (!r.income_source_id) return true
+    const src = (incomeSources || []).find((s: any) => s.id === r.income_source_id)
+    return !src || !src.is_recurring
+  })
+  const nonRecurringExpected = nonRecurringRecords
+    .filter((r: any) => r.status === 'RECEIVED' || r.status === 'EXPECTED')
     .reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
 
-  const activeRecurringSourceTotal = (incomeSources || [])
-    .filter((s: any) => s.is_active && s.is_recurring)
-    .reduce((sum: number, s: any) => sum + Number(s.expected_amount || 0), 0)
-
-  const expectedCashIn = recordExpectedCashIn > 0 ? recordExpectedCashIn : activeRecurringSourceTotal
+  expectedCashIn += nonRecurringExpected
 
   // Calculate Actual Cash Out (PAID status)
   const actualCashOut = (obligationPayments || [])
@@ -119,50 +147,53 @@ export async function getMonthlyFinancialData(userId: string, month: string, sup
   let recurringIncome = 0
   let variableIncome = 0
 
-  const sourceMap = new Map<string, { name: string; type: string; amount: number; isRecurring: boolean }>()
+  const sourceMap = new Map<string, { name: string; type: string; amount: number; isRecurring: boolean; status?: string }>()
 
-  // Map from income records if present
-  if (incomeRecords && incomeRecords.length > 0) {
-    incomeRecords.forEach((r: any) => {
-      const isRec = r.income_sources?.is_recurring ?? (r.income_sources?.income_type === 'SALARY')
-      const amt = Number(r.amount || 0)
-      if (isRec) {
-        recurringIncome += amt
-      } else {
-        variableIncome += amt
-      }
-
-      const key = r.income_source_id || r.id
-      const existing = sourceMap.get(key)
-      if (existing) {
-        existing.amount += amt
-      } else {
-        sourceMap.set(key, {
-          name: r.income_sources?.name || r.description || 'Income Stream',
-          type: r.income_sources?.income_type || 'OTHER',
-          amount: amt,
-          isRecurring: isRec,
-        })
-      }
-    })
-  } else {
-    // Fall back to active income sources
-    (incomeSources || []).forEach((s: any) => {
-      if (!s.is_active) return
-      const amt = Number(s.expected_amount || 0)
-      if (s.is_recurring) {
-        recurringIncome += amt
-      } else {
-        variableIncome += amt
-      }
+  // 1. Map all active recurring streams (guaranteeing each stream like paybyte & youngestMinds is represented)
+  activeRecurringSources.forEach((s: any) => {
+    const recs = sourceRecordMap.get(s.id)
+    if (recs && recs.length > 0) {
+      const sourceReceived = recs
+        .filter((r: any) => r.status === 'RECEIVED')
+        .reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
+      const sourceTotal = recs
+        .filter((r: any) => r.status === 'RECEIVED' || r.status === 'EXPECTED')
+        .reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
+      const amt = sourceTotal > 0 ? sourceTotal : Number(s.expected_amount || 0)
+      recurringIncome += amt
       sourceMap.set(s.id, {
         name: s.name,
         type: s.income_type,
         amount: amt,
-        isRecurring: s.is_recurring,
+        isRecurring: true,
+        status: sourceReceived > 0 ? 'RECEIVED' : 'EXPECTED',
       })
+    } else {
+      const amt = Number(s.expected_amount || 0)
+      recurringIncome += amt
+      sourceMap.set(s.id, {
+        name: s.name,
+        type: s.income_type,
+        amount: amt,
+        isRecurring: true,
+        status: 'EXPECTED',
+      })
+    }
+  })
+
+  // 2. Map non-recurring / variable records
+  nonRecurringRecords.forEach((r: any) => {
+    const amt = Number(r.amount || 0)
+    variableIncome += amt
+    const key = r.income_source_id || r.id
+    sourceMap.set(key, {
+      name: r.income_sources?.name || r.description || 'Variable Inflow',
+      type: r.income_sources?.income_type || 'OTHER',
+      amount: amt,
+      isRecurring: false,
+      status: r.status,
     })
-  }
+  })
 
   // Cash In Breakdown array with percentages
   const totalBreakdownIn = recurringIncome + variableIncome || 1
@@ -203,9 +234,8 @@ export async function getMonthlyFinancialData(userId: string, month: string, sup
     percentage: Math.round((c.amount / totalBreakdownOut) * 100),
   }))
 
-  // Financial Health
-  // Fixed Commitments = active monthly obligations
   const fixedCommitmentsTotal = activeFixedObligationTotal || effectiveOut
+  const activeRecurringSourceTotal = activeRecurringSources.reduce((sum: number, s: any) => sum + Number(s.expected_amount || 0), 0)
   const recurringIncomeTotal = recurringIncome || activeRecurringSourceTotal
 
   // Coverage Ratio: Recurring Income / Fixed Commitments (e.g. 1.69x)
